@@ -21,7 +21,7 @@ if ! [[ "$INTERVAL" =~ ^[0-9]+$ ]] || (( INTERVAL < 1 )); then
 fi
 
 id "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
-install -d -o root -g root -m 0755 "$INSTALL_DIR"
+install -d -o root -g "$SERVICE_USER" -m 0750 "$INSTALL_DIR"
 install -o root -g root -m 0755 "$SCRIPT_DIR/linux_monitor.py" "$INSTALL_DIR/linux_monitor.py"
 
 python3 -m venv "$INSTALL_DIR/venv"
@@ -49,7 +49,7 @@ Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_USER
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/venv/bin/python $INSTALL_DIR/linux_monitor.py --server-id $SERVER_ID --token $TOKEN --url $URL --interval $INTERVAL
+ExecStart=$INSTALL_DIR/venv/bin/python $INSTALL_DIR/linux_monitor.py --config $INSTALL_DIR/agent.json
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
@@ -71,6 +71,6 @@ EOF
 systemctl daemon-reload
 systemctl enable --now server-monitor.service
 
-echo "ServerMonitor Linux agent installed."
+echo "ServerMonitor Linux agent installed and started."
 echo "Check status: sudo systemctl status server-monitor"
 echo "View agent logs: sudo journalctl -u server-monitor -f"
