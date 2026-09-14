@@ -1,5 +1,5 @@
-import { auth0 } from "../../../../../../lib/auth0";
-import { getSupabaseAdmin } from "../../../../../../lib/supabase-admin";
+import { auth0 } from "../../../../../lib/auth0";
+import { getSupabaseAdmin } from "../../../../../lib/supabase-admin";
 
 export async function GET(request: Request,{params}:{params:Promise<{id:string}>}){
   const session=await auth0.getSession(); if(!session?.user)return Response.json({error:"Unauthorized"},{status:401});
