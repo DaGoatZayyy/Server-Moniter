@@ -14,15 +14,8 @@ function validSecret(provided: string, stored: string | null) {
   const b = Buffer.from(stored);
   return a.length === b.length && timingSafeEqual(a, b);
 }
-
-function finiteMetric(value: unknown, fallback = 0) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : fallback;
-}
-
-function boundedMetric(value: unknown, min: number, max: number) {
-  return Math.min(Math.max(finiteMetric(value), min), max);
-}
+function finiteMetric(value: unknown, fallback = 0) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
+function boundedMetric(value: unknown, min: number, max: number) { return Math.min(Math.max(finiteMetric(value), min), max); }
 
 export async function POST(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";
@@ -35,14 +28,8 @@ export async function POST(request: Request) {
   if (!serverId || !token) return Response.json({ error: "server_id and token are required" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
-  const { data: server, error: lookupError } = await supabase
-    .from("servers")
-    .select("id,agent_secret_hash")
-    .eq("id", serverId)
-    .single();
-  if (lookupError || !server || !validSecret(token, server.agent_secret_hash)) {
-    return Response.json({ error: "Invalid agent credentials" }, { status: 401 });
-  }
+  const { data: server, error: lookupError } = await supabase.from("servers").select("id,agent_secret_hash").eq("id", serverId).single();
+  if (lookupError || !server || !validSecret(token, server.agent_secret_hash)) return Response.json({ error: "Invalid agent credentials" }, { status: 401 });
 
   const metrics = body.metrics ?? {};
   const normalizedMetrics = {
@@ -55,69 +42,34 @@ export async function POST(request: Request) {
     upload_mbps: boundedMetric(metrics.upload_mbps, 0, Number.MAX_SAFE_INTEGER),
     uptime_seconds: Math.max(0, Math.floor(finiteMetric(metrics.uptime_seconds))),
   };
-
   const { error: metricError } = await supabase.from("metrics").insert(normalizedMetrics);
   if (metricError) return Response.json({ error: metricError.message }, { status: 500 });
 
-  if (Array.isArray(body.processes) && body.processes.length) {
-    await supabase.from("processes").insert(body.processes.slice(0, 100).map((p: any) => ({
-      server_id: server.id,
-      pid: Math.max(0, Math.floor(finiteMetric(p.pid))),
-      name: String(p.name ?? "unknown").slice(0, 200),
-      cpu_percent: boundedMetric(p.cpu_percent, 0, 100),
-      memory_mb: boundedMetric(p.memory_mb, 0, Number.MAX_SAFE_INTEGER),
-    })));
-  }
+  if (Array.isArray(body.processes) && body.processes.length) await supabase.from("processes").insert(body.processes.slice(0, 100).map((p: any) => ({ server_id: server.id, pid: Math.max(0, Math.floor(finiteMetric(p.pid))), name: String(p.name ?? "unknown").slice(0, 200), cpu_percent: boundedMetric(p.cpu_percent, 0, 100), memory_mb: boundedMetric(p.memory_mb, 0, Number.MAX_SAFE_INTEGER) })));
+  if (Array.isArray(body.logs) && body.logs.length) await supabase.from("logs").insert(body.logs.slice(0, 50).map((l: any) => ({ server_id: server.id, level: ["info", "warn", "error"].includes(l.level) ? l.level : "info", source: String(l.source ?? "agent").slice(0, 100), message: String(l.message ?? "").slice(0, 2000) })));
+  if (Array.isArray(body.errors) && body.errors.length) await supabase.from("errors").insert(body.errors.slice(0, 25).map((e: any) => ({ server_id: server.id, severity: String(e.severity ?? "error").slice(0, 50), code: String(e.code ?? "").slice(0, 100), message: String(e.message ?? "").slice(0, 2000) })));
 
-  if (Array.isArray(body.logs) && body.logs.length) {
-    await supabase.from("logs").insert(body.logs.slice(0, 50).map((l: any) => ({
-      server_id: server.id,
-      level: ["info", "warn", "error"].includes(l.level) ? l.level : "info",
-      source: String(l.source ?? "agent").slice(0, 100),
-      message: String(l.message ?? "").slice(0, 2000),
-    })));
-  }
-
-  if (Array.isArray(body.errors) && body.errors.length) {
-    await supabase.from("errors").insert(body.errors.slice(0, 25).map((e: any) => ({
-      server_id: server.id,
-      severity: String(e.severity ?? "error").slice(0, 50),
-      code: String(e.code ?? "").slice(0, 100),
-      message: String(e.message ?? "").slice(0, 2000),
-    })));
-  }
-
-  // Create one unresolved alert per resource type, then auto-resolve it after recovery.
   for (const threshold of THRESHOLDS) {
     const value = normalizedMetrics[threshold.key];
-    const { data: existing } = await supabase
-      .from("errors")
-      .select("id")
-      .eq("server_id", server.id)
-      .eq("code", threshold.code)
-      .is("resolved_at", null)
-      .limit(1);
-
+    const { data: existing } = await supabase.from("errors").select("id").eq("server_id", server.id).eq("code", threshold.code).is("resolved_at", null).limit(1);
     if (value >= threshold.limit) {
-      if (!existing?.length) {
-        await supabase.from("errors").insert({
-          server_id: server.id,
-          severity: "warning",
-          code: threshold.code,
-          message: `${threshold.label} usage is high at ${value.toFixed(1)}% (threshold ${threshold.limit}%).`,
-        });
-      }
+      if (!existing?.length) await supabase.from("errors").insert({ server_id: server.id, severity: "warning", code: threshold.code, message: `${threshold.label} usage is high at ${value.toFixed(1)}% (threshold ${threshold.limit}%).` });
     } else if (existing?.length) {
-      await supabase
-        .from("errors")
-        .update({ resolved_at: new Date().toISOString() })
-        .eq("server_id", server.id)
-        .eq("code", threshold.code)
-        .is("resolved_at", null);
+      await supabase.from("errors").update({ resolved_at: new Date().toISOString() }).eq("server_id", server.id).eq("code", threshold.code).is("resolved_at", null);
     }
   }
 
+  const system = body.system;
+  const systemInfo = system && typeof system === "object" ? {
+    hostname: String(system.hostname ?? "").slice(0, 255),
+    platform: String(system.platform ?? "").slice(0, 100),
+    release: String(system.release ?? "").slice(0, 255),
+    architecture: String(system.architecture ?? "").slice(0, 100),
+    cpu_count: Math.max(0, Math.floor(finiteMetric(system.cpu_count))),
+    memory_total_mb: Math.max(0, Math.floor(finiteMetric(system.memory_total_mb))),
+  } : null;
+
   const now = new Date().toISOString();
-  await supabase.from("servers").update({ status: "online", last_seen_at: now }).eq("id", server.id);
+  await supabase.from("servers").update({ status: "online", last_seen_at: now, ...(systemInfo ? { system_info: systemInfo } : {}) }).eq("id", server.id);
   return Response.json({ ok: true, received_at: now });
 }
