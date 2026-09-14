@@ -4,3 +4,5 @@
       "path": "/api/cron/check-offline",
       "schedule": "0 0 * * *"
     }
+  ]
+}
