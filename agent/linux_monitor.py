@@ -42,19 +42,28 @@ def journal_events(limit=20):
     return logs[-20:], errors[-20:]
 
 
+def process_snapshot():
+    processes = list(psutil.process_iter(["pid", "name", "memory_info"]))
+    for p in processes:
+        try: p.cpu_percent(None)
+        except (psutil.NoSuchProcess, psutil.AccessDenied): pass
+    time.sleep(0.1)
+    rows = []
+    for p in processes:
+        try:
+            info = p.info; mem = info["memory_info"]
+            rows.append({"pid": info["pid"], "name": info["name"] or "unknown", "cpu_percent": round(p.cpu_percent(None), 1), "memory_mb": round((mem.rss if mem else 0) / 1024 / 1024, 1)})
+        except (psutil.NoSuchProcess, psutil.AccessDenied): pass
+    rows.sort(key=lambda p: p["cpu_percent"], reverse=True)
+    return rows[:25]
+
+
 def snapshot(previous_net, previous_time, server_id):
     now = time.monotonic(); net = psutil.net_io_counters(); elapsed = max(now - previous_time, 0.001)
     down = max(0, net.bytes_recv - previous_net.bytes_recv) * 8 / elapsed / 1_000_000
     up = max(0, net.bytes_sent - previous_net.bytes_sent) * 8 / elapsed / 1_000_000
-    processes = []
-    for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_info"]):
-        try:
-            info = p.info; mem = info["memory_info"]
-            processes.append({"pid": info["pid"], "name": info["name"] or "unknown", "cpu_percent": round(info["cpu_percent"] or 0, 1), "memory_mb": round((mem.rss if mem else 0) / 1024 / 1024, 1)})
-        except (psutil.NoSuchProcess, psutil.AccessDenied): pass
-    processes.sort(key=lambda p: p["cpu_percent"], reverse=True)
     logs, errors = journal_events()
-    return {"server_id": server_id, "metrics": {"cpu_percent": psutil.cpu_percent(interval=0.5), "memory_percent": psutil.virtual_memory().percent, "gpu_percent": gpu_percent(), "disk_percent": psutil.disk_usage("/").percent, "download_mbps": round(down, 2), "upload_mbps": round(up, 2), "uptime_seconds": int(time.time() - psutil.boot_time())}, "processes": processes[:25], "logs": logs, "errors": errors}, net, now
+    return {"server_id": server_id, "metrics": {"cpu_percent": psutil.cpu_percent(interval=0.5), "memory_percent": psutil.virtual_memory().percent, "gpu_percent": gpu_percent(), "disk_percent": psutil.disk_usage("/").percent, "download_mbps": round(down, 2), "upload_mbps": round(up, 2), "uptime_seconds": int(time.time() - psutil.boot_time())}, "processes": process_snapshot(), "logs": logs, "errors": errors}, net, now
 
 
 def load_config(path):
