@@ -14,10 +14,9 @@ create table if not exists public.servers (
 );
 
 create table if not exists public.metrics (
-  id bigint generated always as identity primary key,
-  server_id uuid not null references public.servers(id) on delete cascade,
-  recorded_at timestamptz not null default now(), cpu_percent real, memory_percent real,
-  gpu_percent real, disk_percent real, download_mbps real, upload_mbps real, uptime_seconds bigint
+  id bigint generated always as identity primary key, server_id uuid not null references public.servers(id) on delete cascade,
+  recorded_at timestamptz not null default now(), cpu_percent real, memory_percent real, gpu_percent real, disk_percent real,
+  download_mbps real, upload_mbps real, uptime_seconds bigint
 );
 create table if not exists public.processes (
   id bigint generated always as identity primary key, server_id uuid not null references public.servers(id) on delete cascade,
@@ -41,4 +40,8 @@ alter table public.processes enable row level security;
 alter table public.logs enable row level security;
 alter table public.errors enable row level security;
 
+-- Migration safety for databases created from an earlier schema.
+alter table public.servers add column if not exists os text not null default 'windows';
+alter table public.servers add column if not exists collection_interval integer not null default 5;
+alter table public.servers add column if not exists agent_secret_hash text;
 -- The service role is server-side only. Add owner-scoped policies after configuring Auth0 JWT claims.
