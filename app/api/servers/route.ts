@@ -1,23 +1,11 @@
+import { auth0 } from "../../../lib/auth0";
 import { getSupabaseAdmin } from "../../../lib/supabase-admin";
-import { randomBytes, createHash } from "node:crypto";
 
-export async function POST(request: Request) {
-  // Auth0 session/JWT ownership validation should be enforced here before production use.
-  let body: any;
-  try { body = await request.json(); } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
-  const name = String(body.name ?? "").trim();
-  const host = String(body.host ?? "").trim();
-  const os = String(body.os ?? "windows");
-  const interval = Math.max(5, Math.min(300, Number(body.interval ?? 5)));
-  if (!name || !host) return Response.json({ error: "name and host are required" }, { status: 400 });
-
-  const secret = randomBytes(32).toString("base64url");
+export async function GET() {
+  const session = await auth0.getSession();
+  if (!session?.user) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase.from("servers").insert({
-    owner_id: String(body.owner_id ?? "pending-auth0-user"), name, host, os, collection_interval: interval,
-    agent_secret_hash: createHash("sha256").update(secret).digest("hex"),
-  }).select("id,name,host,agent_id,collection_interval").single();
+  const { data, error } = await supabase.from("servers").select("id,name,host,os,status,last_seen_at,created_at").eq("owner_id", session.user.sub).order("created_at", { ascending: false });
   if (error) return Response.json({ error: error.message }, { status: 500 });
-
-  return Response.json({ server: data, enrollment_token: secret }, { status: 201 });
+  return Response.json({ servers: data ?? [] }, { headers: { "Cache-Control": "no-store" } });
 }
