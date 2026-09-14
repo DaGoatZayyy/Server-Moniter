@@ -9,13 +9,19 @@ export async function PATCH(request: Request) {
   try { body = await request.json(); } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!/^\S+@\S+\.\S+$/.test(email) || email.length > 254) return Response.json({ error: "Enter a valid email address" }, { status: 400 });
+  if (email === session.user.email?.toLowerCase()) return Response.json({ error: "That is already your account email" }, { status: 400 });
   const response = await auth0ManagementRequest(`/users/${encodeURIComponent(session.user.sub)}`, {
     method: "PATCH",
     body: JSON.stringify({ email, email_verified: false })
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) return Response.json({ error: data.message || "Unable to change email" }, { status: response.status });
-  return Response.json({ message: "Email updated. Check the new address for a verification email." });
+  const verify = await auth0ManagementRequest("/jobs/verification-email", {
+    method: "POST",
+    body: JSON.stringify({ user_id: session.user.sub, client_id: process.env.AUTH0_CLIENT_ID })
+  });
+  if (!verify.ok) return Response.json({ error: "Email changed, but the verification email could not be sent. Use Auth0 to resend verification." }, { status: 502 });
+  return Response.json({ message: "Email changed. A verification email was sent to the new address." });
 }
 
 export async function DELETE() {
