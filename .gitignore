@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+
+# Python agent
+agent/windows/.venv/
+agent/windows/__pycache__/
+agent/windows/dist/
+agent/windows/build/
+agent/windows/*.spec
+agent/windows/config.json
