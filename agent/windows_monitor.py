@@ -19,7 +19,37 @@ def gpu_percent():
         return 0.0
 
 
-def snapshot(previous_net, previous_time, server_id):
+def windows_events(seen_ids):
+    """Read recent System/Application Event Viewer entries without executing event payloads."""
+    script = r'''$events = @(); foreach ($log in @("System","Application")) { try { $events += Get-WinEvent -LogName $log -MaxEvents 20 -ErrorAction SilentlyContinue | ForEach-Object { [PSCustomObject]@{ RecordId=$_.RecordId; LogName=$_.LogName; Provider=$_.ProviderName; Id=$_.Id; Level=$_.Level; LevelName=$_.LevelDisplayName; Time=$_.TimeCreated.ToString("o"); Message=if ($_.Message) { $_.Message } else { "" } } } } catch {} }; $events | ConvertTo-Json -Compress -Depth 3'''
+    try:
+        output = subprocess.check_output(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], text=True, timeout=8, stderr=subprocess.DEVNULL)
+        if not output.strip():
+            return [], [], seen_ids
+        raw = json.loads(output)
+        if isinstance(raw, dict): raw = [raw]
+        logs, errors = [], []
+        for event in raw:
+            record_id = str(event.get("RecordId", "")); log_name = str(event.get("LogName", "Windows")); provider = str(event.get("Provider", "Event Viewer")); message = str(event.get("Message", "")).strip()[:2000]
+            if not record_id or record_id in seen_ids or not message:
+                continue
+            seen_ids.add(record_id)
+            level = str(event.get("LevelName", "Information") or "Information").lower()
+            if level in ("error", "critical"):
+                logs.append({"level":"error","source":f"{log_name}/{provider}","message":f"Event {event.get('Id')}: {message}"})
+                errors.append({"severity":"critical" if level == "critical" else "error","code":f"{log_name}:{event.get('Id')}","message":message})
+            elif level in ("warning", "warn"):
+                logs.append({"level":"warn","source":f"{log_name}/{provider}","message":f"Event {event.get('Id')}: {message}"})
+            else:
+                logs.append({"level":"info","source":f"{log_name}/{provider}","message":f"Event {event.get('Id')}: {message}"})
+        if len(seen_ids) > 500:
+            seen_ids.clear()
+        return logs[-50:], errors[-25:], seen_ids
+    except (subprocess.SubprocessError, OSError, ValueError, json.JSONDecodeError):
+        return [], [], seen_ids
+
+
+def snapshot(previous_net, previous_time, server_id, seen_event_ids):
     now = time.monotonic(); net = psutil.net_io_counters(); elapsed = max(now - previous_time, 0.001)
     down = max(0, net.bytes_recv - previous_net.bytes_recv) * 8 / elapsed / 1_000_000
     up = max(0, net.bytes_sent - previous_net.bytes_sent) * 8 / elapsed / 1_000_000
@@ -31,7 +61,8 @@ def snapshot(previous_net, previous_time, server_id):
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
     processes.sort(key=lambda p: p["cpu_percent"], reverse=True)
-    return {"server_id": server_id, "metrics": {"cpu_percent": psutil.cpu_percent(interval=0.5), "memory_percent": psutil.virtual_memory().percent, "gpu_percent": gpu_percent(), "disk_percent": psutil.disk_usage(Path.home().anchor or "C:\\").percent, "download_mbps": round(down, 2), "upload_mbps": round(up, 2), "uptime_seconds": int(time.time() - psutil.boot_time())}, "processes": processes[:25], "logs": []}, net, now
+    logs, errors, seen_event_ids = windows_events(seen_event_ids)
+    return {"server_id": server_id, "metrics": {"cpu_percent": psutil.cpu_percent(interval=0.5), "memory_percent": psutil.virtual_memory().percent, "gpu_percent": gpu_percent(), "disk_percent": psutil.disk_usage(Path.home().anchor or "C:\\").percent, "download_mbps": round(down, 2), "upload_mbps": round(up, 2), "uptime_seconds": int(time.time() - psutil.boot_time())}, "processes": processes[:25], "logs": logs, "errors": errors}, net, now, seen_event_ids
 
 
 def load_config(path):
@@ -51,9 +82,9 @@ def main():
     else:
         if not all((args.server_id, args.token, args.url)): parser.error("--server-id, --token and --url are required unless --config is used")
         server_id, token, url, interval = args.server_id, args.token, args.url, max(1, args.interval)
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}; previous_net = psutil.net_io_counters(); previous_time = time.monotonic(); hostname = socket.gethostname(); connected = False
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}; previous_net = psutil.net_io_counters(); previous_time = time.monotonic(); hostname = socket.gethostname(); connected = False; seen_event_ids = set()
     while True:
-        payload, previous_net, previous_time = snapshot(previous_net, previous_time, server_id)
+        payload, previous_net, previous_time, seen_event_ids = snapshot(previous_net, previous_time, server_id, seen_event_ids)
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=10); response.raise_for_status()
             if not connected: print(f"connected: {hostname}"); connected = True
