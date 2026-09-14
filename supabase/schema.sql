@@ -10,6 +10,7 @@ create table if not exists public.servers (
   agent_secret_hash text not null,
   status text not null default 'offline' check (status in ('online','offline','warning')),
   last_seen_at timestamptz,
+  system_info jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -44,4 +45,5 @@ alter table public.errors enable row level security;
 alter table public.servers add column if not exists os text not null default 'windows';
 alter table public.servers add column if not exists collection_interval integer not null default 5;
 alter table public.servers add column if not exists agent_secret_hash text;
+alter table public.servers add column if not exists system_info jsonb;
 -- The service role is server-side only. Add owner-scoped policies after configuring Auth0 JWT claims.
