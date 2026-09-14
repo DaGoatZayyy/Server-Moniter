@@ -9,7 +9,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const supabase = getSupabaseAdmin();
   const { data: server, error: serverError } = await supabase.from("servers").select("id,name,host,status,last_seen_at,created_at,collection_interval").eq("id", id).eq("owner_id", session.user.sub).single();
   if (serverError || !server) return Response.json({ error: "Server not found" }, { status: 404 });
-  const limit = Math.min(Math.max(Number(new URL(request.url).searchParams.get("limit") ?? 30), 1), 100);
+  const rawLimit = Number(new URL(request.url).searchParams.get("limit") ?? 30);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.floor(rawLimit), 1), 100) : 30;
   const [{ data: metrics, error: metricsError }, { data: processes, error: processesError }, { data: logs, error: logsError }, { data: errors, error: errorsError }] = await Promise.all([
     supabase.from("metrics").select("recorded_at,cpu_percent,memory_percent,gpu_percent,disk_percent,download_mbps,upload_mbps,uptime_seconds").eq("server_id", id).order("recorded_at", { ascending: false }).limit(limit),
     supabase.from("processes").select("recorded_at,pid,name,cpu_percent,memory_mb").eq("server_id", id).order("recorded_at", { ascending: false }).limit(100),
