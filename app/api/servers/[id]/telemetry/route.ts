@@ -7,7 +7,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params;
   if (!id) return Response.json({ error: "Missing server id" }, { status: 400 });
   const supabase = getSupabaseAdmin();
-  const { data: server, error: serverError } = await supabase.from("servers").select("id,name,host,status,last_seen_at,created_at,collection_interval").eq("id", id).eq("owner_id", session.user.sub).single();
+  const { data: server, error: serverError } = await supabase.from("servers").select("id,name,host,os,status,last_seen_at,created_at,collection_interval,system_info").eq("id", id).eq("owner_id", session.user.sub).single();
   if (serverError || !server) return Response.json({ error: "Server not found" }, { status: 404 });
   const requested = Number(new URL(request.url).searchParams.get("limit") ?? 30);
   const limit = Number.isFinite(requested) ? Math.min(Math.max(Math.floor(requested), 1), 100) : 30;
