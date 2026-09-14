@@ -23,7 +23,7 @@ def windows_events(seen_ids):
     """Read recent System/Application Event Viewer entries without executing event payloads."""
     script = r'''$events = @(); foreach ($log in @("System","Application")) { try { $events += Get-WinEvent -LogName $log -MaxEvents 20 -ErrorAction SilentlyContinue | ForEach-Object { [PSCustomObject]@{ RecordId=$_.RecordId; LogName=$_.LogName; Provider=$_.ProviderName; Id=$_.Id; Level=$_.Level; LevelName=$_.LevelDisplayName; Time=$_.TimeCreated.ToString("o"); Message=if ($_.Message) { $_.Message } else { "" } } } } catch {} }; $events | ConvertTo-Json -Compress -Depth 3'''
     try:
-        output = subprocess.check_output(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], text=True, timeout=8, stderr=subprocess.DEVNULL)
+        output = subprocess.check_output(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], text=True, timeout=8, stderr=subprocess.DEVNULL)
         if not output.strip():
             return [], [], seen_ids
         raw = json.loads(output)
@@ -31,9 +31,10 @@ def windows_events(seen_ids):
         logs, errors = [], []
         for event in raw:
             record_id = str(event.get("RecordId", "")); log_name = str(event.get("LogName", "Windows")); provider = str(event.get("Provider", "Event Viewer")); message = str(event.get("Message", "")).strip()[:2000]
-            if not record_id or record_id in seen_ids or not message:
+            event_key = f"{log_name}:{record_id}"
+            if not record_id or event_key in seen_ids or not message:
                 continue
-            seen_ids.add(record_id)
+            seen_ids.add(event_key)
             level = str(event.get("LevelName", "Information") or "Information").lower()
             if level in ("error", "critical"):
                 logs.append({"level":"error","source":f"{log_name}/{provider}","message":f"Event {event.get('Id')}: {message}"})
