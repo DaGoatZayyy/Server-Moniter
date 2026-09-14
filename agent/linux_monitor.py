@@ -83,7 +83,7 @@ def main():
     while True:
         payload, previous_net, previous_time = snapshot(previous_net, previous_time, server_id)
         try:
-            response = requests.post(args.url if not args.config else url, json=payload, headers=headers, timeout=10); response.raise_for_status()
+            response = requests.post(url, json=payload, headers=headers, timeout=10); response.raise_for_status()
             if not connected: print("connected"); connected = True
         except requests.RequestException as exc: connected = False; print(f"heartbeat failed: {exc}")
         time.sleep(interval)
